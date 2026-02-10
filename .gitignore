@@ -1,0 +1,19 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data (downloaded videos and transcripts are large)
+data/videos/
+data/transcripts/
+
+# Logs
+logs/
+
+# Runtime
+execution_log.json
+data/.transcriber.lock
+
+# OS
+.DS_Store
