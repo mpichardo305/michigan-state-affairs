@@ -85,6 +85,16 @@ def _process_video(video, video_dir, transcript_dir, download_fn, config, state_
             'qc_passed': qc_result['passed'],
             'qc_score': qc_result['score'],
         }
+
+        # Upload final transcript to S3
+        if s3_enabled:
+            final_md = Path(config['transcription']['final_dir']) / f"{transcript_path.stem}.md"
+            if final_md.exists():
+                try:
+                    t_s3_key = s3_uploader.upload(final_md, config, logger, prefix='transcripts/')
+                    transcribed_metadata['transcript_s3_key'] = t_s3_key
+                except Exception as e:
+                    logger.error(f"S3 transcript upload failed for {final_md.name}: {e}")
     except Exception as e:
         logger.error(f"Failed to transcribe {filename}: {e}")
         state_manager.set_state(filename, 'failed', {'error': str(e)})
@@ -437,6 +447,7 @@ def qc_existing(config, state_manager, logger):
         logger.info("No existing transcripts found")
         return
 
+    s3_enabled = config.get('s3', {}).get('enabled', False)
     logger.info(f"Running QC on {len(transcripts)} existing transcripts")
     passed = 0
     failed = 0
@@ -447,6 +458,15 @@ def qc_existing(config, state_manager, logger):
         with open(transcript_path, 'r') as f:
             transcript_data = json.load(f)
         write_final(transcript_path, transcript_data, config, logger)
+
+        # Upload final transcript to S3
+        if s3_enabled:
+            final_md = Path(config['transcription']['final_dir']) / f"{transcript_path.stem}.md"
+            if final_md.exists():
+                try:
+                    s3_uploader.upload(final_md, config, logger, prefix='transcripts/')
+                except Exception as e:
+                    logger.error(f"S3 transcript upload failed for {final_md.name}: {e}")
 
         # Update state manager metadata if entry exists
         filename = transcript_path.stem + '.mp4'
@@ -547,6 +567,16 @@ def retranscribe(config, state_manager, logger):
                 'qc_passed': qc_result['passed'],
                 'qc_score': qc_result['score'],
             }
+
+            # Upload final transcript to S3
+            if s3_enabled:
+                final_md = Path(config['transcription']['final_dir']) / f"{new_transcript_path.stem}.md"
+                if final_md.exists():
+                    try:
+                        t_s3_key = s3_uploader.upload(final_md, config, logger, prefix='transcripts/')
+                        transcribed_metadata['transcript_s3_key'] = t_s3_key
+                    except Exception as e:
+                        logger.error(f"S3 transcript upload failed for {final_md.name}: {e}")
         except Exception as e:
             logger.error(f"Failed to transcribe {filename}: {e}")
             state_manager.set_state(filename, 'failed', {'error': str(e)})
