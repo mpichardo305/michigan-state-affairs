@@ -49,9 +49,7 @@
     },
     "notifications": {
       "telegram": {
-        "enabled": true,
-        "bot_token": "8300231323:AAEjvffb5HBjStO684kiOQ9DMhnTUMvNuAA",
-        "chat_id": "7777947340"
+        "enabled": true
       }
     }
   }
