@@ -21,7 +21,9 @@ def transcribe(video_path, filename, transcript_dir, config, logger):
         model = whisper.load_model(model_name)
 
         logger.info("Running transcription (this may take a while)...")
-        result = model.transcribe(str(video_path))
+        whisper_params = config.get('transcription', {}).get('whisper_params', {})
+        whisper_params.setdefault('language', 'en')
+        result = model.transcribe(str(video_path), **whisper_params)
 
         transcript_data = {
             'filename': filename,

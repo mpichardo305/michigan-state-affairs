@@ -2,6 +2,9 @@
     "sources": {
       "house": {
         "url": "https://house.mi.gov/VideoArchive"
+      },
+      "senate": {
+        "url": "https://cloud.castus.tv/vod/misenate/?page=ALL"
       }
     },
     "selenium": {
@@ -12,11 +15,25 @@
       "output_dir": "data/videos",
       "chunk_size": 1048576,
       "timeout": 600,
-      "after_date": "2026-02-01"
+      "after_date": "2026-02-05"
     },
     "transcription": {
       "output_dir": "data/transcripts",
-      "model": "base"
+      "model": "small",
+      "readable_dir": "data/readable",
+      "whisper_params": { "language": "en" }
+    },
+    "qc": {
+      "bad_segment": {
+        "no_speech_prob_min": 0.6,
+        "avg_logprob_max": -0.5,
+        "compression_ratio_max": 0.5,
+        "temperature_min": 1.0
+      },
+      "fail_thresholds": {
+        "bad_segment_pct": 0.5,
+        "wrong_language": true
+      }
     },
     "logging": {
       "level": "INFO",
