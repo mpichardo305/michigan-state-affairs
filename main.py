@@ -6,9 +6,13 @@ Orchestrator - scrape, download, and transcribe House and Senate hearings
 
 import json
 import argparse
+import os
 import sys
 from datetime import date
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from utils.logging import setup_logging
 from utils.lock import FileLock
@@ -16,7 +20,7 @@ from utils.notifications import send_notification
 from state.manager import StateManager
 from scrapers import house as house_scraper
 from scrapers import senate as senate_scraper
-from processing import downloader, senate_downloader, transcriber
+from processing import downloader, senate_downloader, transcriber, s3_uploader
 from processing.qc import run_qc
 from processing.grammar import write_final
 
@@ -58,6 +62,12 @@ def _process_video(video, video_dir, transcript_dir, download_fn, config, state_
 
     state_manager.set_state(filename, 'downloaded', metadata)
 
+    # Start S3 upload in background (parallel with transcription)
+    upload_result = None
+    s3_enabled = config.get('s3', {}).get('enabled', False)
+    if s3_enabled and video_path.exists():
+        upload_result = s3_uploader.start_upload_thread(video_path, config, logger)
+
     try:
         state_manager.set_state(filename, 'transcribing')
         transcript_path = transcriber.transcribe(video_path, filename, transcript_dir, config, logger)
@@ -70,18 +80,29 @@ def _process_video(video, video_dir, transcript_dir, download_fn, config, state_
             transcript_data = json.load(f)
         write_final(transcript_path, transcript_data, config, logger)
 
-        state_manager.set_state(filename, 'transcribed', {
+        transcribed_metadata = {
             'transcript_path': str(transcript_path),
             'qc_passed': qc_result['passed'],
             'qc_score': qc_result['score'],
-        })
+        }
     except Exception as e:
         logger.error(f"Failed to transcribe {filename}: {e}")
         state_manager.set_state(filename, 'failed', {'error': str(e)})
         return 'failed'
 
-    # Delete MP4 after successful transcription to free disk space
-    if video_path.exists():
+    # Wait for S3 upload before deleting local file
+    if upload_result is not None:
+        s3_key, s3_error = s3_uploader.wait_for_upload(upload_result)
+        if s3_key:
+            transcribed_metadata['s3_key'] = s3_key
+        else:
+            logger.error(f"S3 upload failed for {filename}, keeping local file: {s3_error}")
+
+    state_manager.set_state(filename, 'transcribed', transcribed_metadata)
+
+    # Delete MP4 after successful transcription + upload to free disk space
+    can_delete = upload_result is None or upload_result['s3_key'] is not None
+    if can_delete and video_path.exists():
         size_mb = video_path.stat().st_size / 1024 / 1024
         video_path.unlink()
         logger.info(f"Deleted video after transcription: {filename} ({size_mb:.1f} MB freed)")
@@ -89,14 +110,22 @@ def _process_video(video, video_dir, transcript_dir, download_fn, config, state_
     return 'transcribed'
 
 
-def _cleanup_transcribed_videos(video_dir, transcript_dir, logger):
-    """Delete any MP4s that already have a transcript JSON."""
+def _cleanup_transcribed_videos(video_dir, transcript_dir, config, logger):
+    """Upload to S3 (if enabled) then delete any MP4s that already have a transcript JSON."""
     video_dir = Path(video_dir)
     transcript_dir = Path(transcript_dir)
+    s3_enabled = config.get('s3', {}).get('enabled', False)
     freed = 0
     for video_path in video_dir.glob("*.mp4"):
         transcript_file = transcript_dir / f"{video_path.stem}.json"
         if transcript_file.exists():
+            # Upload to S3 before deleting (sequential — no transcription to parallelize with)
+            if s3_enabled:
+                try:
+                    s3_uploader.upload(video_path, config, logger)
+                except Exception as e:
+                    logger.error(f"Cleanup: S3 upload failed for {video_path.name}, keeping local file: {e}")
+                    continue
             size_mb = video_path.stat().st_size / 1024 / 1024
             video_path.unlink()
             freed += size_mb
@@ -279,7 +308,7 @@ def run_house_streaming(config, state_manager, logger, force=False):
     )
     stats['transcribed'] += transcribed
     stats['failed'] += failed
-    _cleanup_transcribed_videos(video_dir, transcript_dir, logger)
+    _cleanup_transcribed_videos(video_dir, transcript_dir, config, logger)
 
     return stats
 
@@ -338,7 +367,7 @@ def run_senate_streaming(config, state_manager, logger, force=False):
     )
     stats['transcribed'] += transcribed
     stats['failed'] += failed
-    _cleanup_transcribed_videos(video_dir, transcript_dir, logger)
+    _cleanup_transcribed_videos(video_dir, transcript_dir, config, logger)
 
     return stats
 
@@ -496,6 +525,12 @@ def retranscribe(config, state_manager, logger):
             failed += 1
             continue
 
+        # Start S3 upload in background (parallel with transcription)
+        upload_result = None
+        s3_enabled = config.get('s3', {}).get('enabled', False)
+        if s3_enabled and video_path.exists():
+            upload_result = s3_uploader.start_upload_thread(video_path, config, logger)
+
         # Transcribe
         try:
             state_manager.set_state(filename, 'transcribing')
@@ -507,24 +542,71 @@ def retranscribe(config, state_manager, logger):
                 transcript_data = json.load(f)
             write_final(new_transcript_path, transcript_data, config, logger)
 
-            state_manager.set_state(filename, 'transcribed', {
+            transcribed_metadata = {
                 'transcript_path': str(new_transcript_path),
                 'qc_passed': qc_result['passed'],
                 'qc_score': qc_result['score'],
-            })
-            success += 1
+            }
         except Exception as e:
             logger.error(f"Failed to transcribe {filename}: {e}")
             state_manager.set_state(filename, 'failed', {'error': str(e)})
             failed += 1
+            continue
 
-        # Delete MP4 after transcription
-        if video_path.exists():
+        # Wait for S3 upload before deleting local file
+        if upload_result is not None:
+            s3_key, s3_error = s3_uploader.wait_for_upload(upload_result)
+            if s3_key:
+                transcribed_metadata['s3_key'] = s3_key
+            else:
+                logger.error(f"S3 upload failed for {filename}, keeping local file: {s3_error}")
+
+        state_manager.set_state(filename, 'transcribed', transcribed_metadata)
+        success += 1
+
+        # Delete MP4 after transcription + upload
+        can_delete = upload_result is None or upload_result['s3_key'] is not None
+        if can_delete and video_path.exists():
             size_mb = video_path.stat().st_size / 1024 / 1024
             video_path.unlink()
             logger.info(f"Deleted video: {filename} ({size_mb:.1f} MB freed)")
 
     logger.info(f"Retranscription complete: {success} succeeded, {failed} failed")
+
+
+def upload_and_delete_existing(config, state_manager, logger):
+    """Upload all local MP4s to S3, record s3_key in state, then delete the local files."""
+    video_dir = Path(config['download']['output_dir'])
+    mp4s = sorted(video_dir.glob("*.mp4"))
+
+    if not mp4s:
+        logger.info("No local MP4 files found to upload")
+        return
+
+    logger.info(f"Uploading {len(mp4s)} local MP4(s) to S3")
+    uploaded = 0
+    freed = 0
+
+    for video_path in mp4s:
+        try:
+            s3_key = s3_uploader.upload(video_path, config, logger)
+            uploaded += 1
+            # Record s3_key in state if entry exists
+            filename = video_path.name
+            entry = state_manager.get_entry(filename)
+            if entry:
+                state_manager.set_state(filename, entry.get('state', 'transcribed'), {
+                    's3_key': s3_key,
+                })
+            # Delete local file after successful upload
+            size_mb = video_path.stat().st_size / 1024 / 1024
+            video_path.unlink()
+            freed += size_mb
+            logger.info(f"Deleted local file: {filename} ({size_mb:.1f} MB freed)")
+        except Exception as e:
+            logger.error(f"Failed to upload {video_path.name}, keeping local file: {e}")
+
+    logger.info(f"Upload complete: {uploaded}/{len(mp4s)} uploaded, {freed:.1f} MB freed")
 
 
 def main():
@@ -555,6 +637,10 @@ def main():
         '--retranscribe', action='store_true',
         help='Re-download and re-transcribe any transcripts that failed QC'
     )
+    parser.add_argument(
+        '--upload-and-delete-existing', action='store_true',
+        help='Upload all local MP4s to S3 then delete them locally'
+    )
     args = parser.parse_args()
 
     config = load_config(args.config)
@@ -576,7 +662,9 @@ def main():
     lock = FileLock(config['lock_file'], logger)
     try:
         with lock:
-            if args.qc_existing:
+            if args.upload_and_delete_existing:
+                upload_and_delete_existing(config, state_manager, logger)
+            elif args.qc_existing:
                 qc_existing(config, state_manager, logger)
             elif args.retranscribe:
                 retranscribe(config, state_manager, logger)

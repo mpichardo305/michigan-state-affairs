@@ -16,5 +16,8 @@ logs/
 execution_log.json
 data/.transcriber.lock
 
+# Secrets
+.env
+
 # OS
 .DS_Store
