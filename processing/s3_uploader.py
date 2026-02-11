@@ -7,17 +7,17 @@ import boto3
 from botocore.exceptions import ClientError
 
 
-def upload(video_path, config, logger):
-    """Upload a video file to S3. Returns the S3 key on success, raises on failure."""
-    s3_config = config.get('s3', {})
-    prefix = s3_config.get('prefix', 'videos/')
+def upload(file_path, config, logger, prefix=None):
+    """Upload a file to S3. Returns the S3 key on success, raises on failure."""
+    if prefix is None:
+        prefix = config.get('s3', {}).get('prefix', 'videos/')
 
     bucket = os.environ['AWS_S3_BUCKET']
     region = os.environ.get('AWS_REGION', 'us-east-2')
 
-    s3_key = f"{prefix}{video_path.name}"
+    s3_key = f"{prefix}{file_path.name}"
 
-    logger.info(f"S3 upload starting: {video_path.name} → s3://{bucket}/{s3_key}")
+    logger.info(f"S3 upload starting: {file_path.name} → s3://{bucket}/{s3_key}")
 
     client = boto3.client(
         's3',
@@ -25,9 +25,9 @@ def upload(video_path, config, logger):
         aws_access_key_id=os.environ['AWS_ACCESS_KEY_ID'],
         aws_secret_access_key=os.environ['AWS_SECRET_ACCESS_KEY'],
     )
-    client.upload_file(str(video_path), bucket, s3_key)
+    client.upload_file(str(file_path), bucket, s3_key)
 
-    logger.info(f"S3 upload complete: {video_path.name}")
+    logger.info(f"S3 upload complete: {file_path.name}")
     return s3_key
 
 
