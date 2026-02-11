@@ -1,0 +1,80 @@
+name: Michigan Hearing Pipeline
+
+on:
+  schedule:
+    - cron: '0 17 * * *'   # 11am CT (CST)
+    - cron: '0 22 * * *'   # 4pm CT (CST)
+    - cron: '0 3 * * *'    # 9pm CT (CST)
+  workflow_dispatch:         # Allow manual triggers
+
+concurrency:
+  group: michigan-pipeline
+  cancel-in-progress: false  # Let current run finish
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
+
+      - name: Cache Whisper model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/whisper
+          key: whisper-small-v1
+
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-fullstop-punct-v1
+
+      - name: Restore execution log (pipeline state)
+        uses: actions/cache/restore@v4
+        with:
+          path: execution_log.json
+          key: exec-log-${{ github.run_id }}
+          restore-keys: exec-log-
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Create .env from secrets
+        run: |
+          cat > .env << EOF
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_S3_BUCKET=${{ secrets.AWS_S3_BUCKET }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          EOF
+
+      - name: Run pipeline
+        run: python3 main.py --source all
+
+      - name: Save execution log
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: execution_log.json
+          key: exec-log-${{ github.run_id }}
+
+      - name: Upload logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 30
