@@ -20,7 +20,7 @@
     "transcription": {
       "output_dir": "data/transcripts",
       "model": "small",
-      "readable_dir": "data/readable",
+      "final_dir": "data/transcripts-final",
       "whisper_params": { "language": "en" }
     },
     "qc": {

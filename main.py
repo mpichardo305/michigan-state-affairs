@@ -18,7 +18,7 @@ from scrapers import house as house_scraper
 from scrapers import senate as senate_scraper
 from processing import downloader, senate_downloader, transcriber
 from processing.qc import run_qc
-from processing.formatter import write_readable
+from processing.grammar import write_final
 
 
 def load_config(config_path):
@@ -68,7 +68,7 @@ def _process_video(video, video_dir, transcript_dir, download_fn, config, state_
         # Write human-readable Markdown
         with open(transcript_path, 'r') as f:
             transcript_data = json.load(f)
-        write_readable(transcript_path, transcript_data, config, logger)
+        write_final(transcript_path, transcript_data, config, logger)
 
         state_manager.set_state(filename, 'transcribed', {
             'transcript_path': str(transcript_path),
@@ -417,7 +417,7 @@ def qc_existing(config, state_manager, logger):
 
         with open(transcript_path, 'r') as f:
             transcript_data = json.load(f)
-        write_readable(transcript_path, transcript_data, config, logger)
+        write_final(transcript_path, transcript_data, config, logger)
 
         # Update state manager metadata if entry exists
         filename = transcript_path.stem + '.mp4'
@@ -505,7 +505,7 @@ def retranscribe(config, state_manager, logger):
 
             with open(new_transcript_path, 'r') as f:
                 transcript_data = json.load(f)
-            write_readable(new_transcript_path, transcript_data, config, logger)
+            write_final(new_transcript_path, transcript_data, config, logger)
 
             state_manager.set_state(filename, 'transcribed', {
                 'transcript_path': str(new_transcript_path),
@@ -555,7 +555,6 @@ def main():
         '--retranscribe', action='store_true',
         help='Re-download and re-transcribe any transcripts that failed QC'
     )
-
     args = parser.parse_args()
 
     config = load_config(args.config)
