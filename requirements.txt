@@ -3,3 +3,5 @@ selenium>=4.15.0
 openai-whisper>=20231117
 boto3>=1.34.0
 python-dotenv>=1.0.0
+language_tool_python>=2.7.3
+transformers>=4.36.0
