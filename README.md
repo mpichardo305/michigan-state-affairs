@@ -77,8 +77,8 @@ This is useful on days where there are multiple videos uploaded and can help sho
 4. Create unit tests to test the reliability of the state manager
 
 Some ideas of what the unit tests would be like for the state manager: 
-Basic roundtrip: set_state → get_state. To test if the Core read/write works.
-Invalid transition raises ValueError so discovered → transcribed gets rejected for not being proper flow.
-Corrupted state file is detected and recovered from a backup instead of crashing the pipeline.
-Valid full sequence actually passes, which is the default expected behavior.
+-Basic roundtrip: set_state → get_state. To test if the Core read/write works.
+-Invalid transition raises ValueError so discovered → transcribed gets rejected for not being proper flow.
+-Corrupted state file is detected and recovered from a backup instead of crashing the pipeline.
+-Valid full sequence actually passes, which is the default expected behavior.
 
