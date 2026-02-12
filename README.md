@@ -1,6 +1,6 @@
 # Michigan Senate and House Hearings Pipeline
 
-Automated pipeline that scrapes, downloads, transcribes, and publishes Michigan House and Senate hearing videos.
+Automated pipeline that scrapes, downloads, transcribes, and saves Michigan House and Senate hearing videos.
 
 A GitHub Actions workflow runs the full pipeline 3x daily on a cron schedule: 11 AM, 4 PM, and 9 PM CT. It can also be triggered manually via `workflow_dispatch`.
 
