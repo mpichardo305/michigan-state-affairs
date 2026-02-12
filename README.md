@@ -1,4 +1,4 @@
-# Michigan House Hearings Pipeline
+# Michigan Senate and House Hearings Pipeline
 
 Automated pipeline that scrapes, downloads, transcribes, and publishes Michigan House and Senate hearing videos.
 
